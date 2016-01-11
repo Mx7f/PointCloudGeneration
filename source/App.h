@@ -12,6 +12,8 @@
 class App : public GApp {
 protected:
 
+  Array<GBuffer::Field> m_fieldsToSave;
+  
     /** True when we need to save GBuffers this frame */
     bool m_savingGBuffers;
 

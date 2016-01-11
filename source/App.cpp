@@ -56,9 +56,10 @@ static void saveGBufferField(shared_ptr<GBuffer> gbuffer, GBuffer::Field field, 
 
 void App::saveGBuffer(const String& filename, int index, LightingEnvironment& environment) {
     shared_ptr<GBuffer> gbuffer = m_gbuffers[index];
-    
-    saveGBufferField(gbuffer, GBuffer::Field::WS_POSITION,      ImageFormat::RGB32F(), filename);
-    saveGBufferField(gbuffer, GBuffer::Field::CS_FACE_NORMAL,   ImageFormat::RGB32F(), filename);
+
+    for (GBuffer::Field field : m_fieldsToSave) {
+        saveGBufferField(gbuffer, field,      ImageFormat::RGB32F(), filename);
+    }
 
     updateAO(index, environment);
     environment.ambientOcclusion = m_ambientOcclusion;
@@ -92,8 +93,17 @@ void App::onInit() {
     //static auto test = Texture::fromFile(System::findDataFile("gbuffer0_WS_POSITION.exr"));
 
     m_savingGBuffers = false;
-    m_gbufferSpecification.encoding[GBuffer::Field::WS_POSITION] = ImageFormat::RGB32F();
-    m_gbufferSpecification.encoding[GBuffer::Field::CS_FACE_NORMAL] = ImageFormat::RGB32F();
+
+    // Add Fields you want to save here
+    //    m_fieldsToSave.append(GBuffer::Field::WS_POSITION);
+    m_fieldsToSave.append(GBuffer::Field::CS_POSITION);
+    m_fieldsToSave.append(GBuffer::Field::CS_FACE_NORMAL);
+
+
+    for (GBuffer::Field field : m_fieldsToSave) {
+      // Make the formats be floating point
+      m_gbufferSpecification.encoding[field] = ImageFormat::RGB32F();
+    }
     
     for (int i = 0; i < m_numLayers; ++i) {
         m_gbuffers.append(GBuffer::create(m_gbufferSpecification, format("GBuffer Layer %d", i)));
@@ -136,6 +146,17 @@ void App::makeGUI() {
     debugWindow->setRect(Rect2D::xywh(0, 0, (float)window()->width(), debugWindow->rect().height()));
 }
 
+static void setPositionsToNaNs(RenderDevice* rd, shared_ptr<Texture> positionTexture) {
+  static shared_ptr<Framebuffer> nanFB = Framebuffer::create("NaN Framebuffer");
+  nanFB->set(Framebuffer::COLOR0, positionTexture);
+  rd->pushState(nanFB); {
+    // Can't set clear color to nan in G3D do to a != check...
+    glClearColor(fnan(), fnan(), fnan(), 0.0);
+    rd->clear();
+    rd->setColorClearValue(Color3(5, 0, 0));
+  } rd->popState();
+ 
+}
 
 void App::computeGBuffers(RenderDevice* rd, Array<shared_ptr<Surface> >& all) {
     BEGIN_PROFILER_EVENT("App::computeGBuffers");
@@ -144,16 +165,16 @@ void App::computeGBuffers(RenderDevice* rd, Array<shared_ptr<Surface> >& all) {
         m_gbuffers[i]->prepare(rd, activeCamera(), 0, -(float)previousSimTimeStep(), m_settings.depthGuardBandThickness, m_settings.colorGuardBandThickness);
     }
 
-    // Hack to set all non convered pixels to nan in the WS buffer; TODO: make more efficient/elegant
-    static shared_ptr<Framebuffer> nanFB = Framebuffer::create("NaN Framebuffer");
+    // Hack to set all non convered pixels to nan in the position buffer; TODO: make more efficient/elegant
+
     for (int i = 0; i < m_gbuffers.size(); ++i) {
-        nanFB->set(Framebuffer::COLOR0, m_gbuffers[i]->texture(GBuffer::Field::WS_POSITION));
-        rd->pushState(nanFB); {
-            // Can't set clear color to nan in G3D do to a != check...
-            glClearColor(fnan(), fnan(), fnan(), 0.0);
-            rd->clear();
-            rd->setColorClearValue(Color3(5, 0, 0));
-        } rd->popState();
+      if (m_fieldsToSave.contains(GBuffer::Field::WS_POSITION)) {
+	setPositionsToNaNs(rd, m_gbuffers[i]->texture(GBuffer::Field::WS_POSITION));
+      }
+      if (m_fieldsToSave.contains(GBuffer::Field::CS_POSITION)) {
+	setPositionsToNaNs(rd, m_gbuffers[i]->texture(GBuffer::Field::CS_POSITION));
+      }
+      
     }
 
 
